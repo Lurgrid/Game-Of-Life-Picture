@@ -1,0 +1,17 @@
+[package]
+name = "gol_img"
+version = "0.1.0"
+edition = "2021"
+description = "Game Of Life with picture"
+keywords = ["Game Of Life", "gol"]
+authors = ["Lurgrid <lurgrid@sagbot.com>"]
+repository = "https://github.com/Lurgrid/Game-Of-Life-Picture"
+license = "GPL-3.0"
+
+[dependencies]
+anyhow = "1"
+image = "0.25"
+ndarray = { version = "0.16", features = ["rayon"] }
+rand = "0.8"
+rayon = "1"
+tokio = { version = "1", features = ["full"] }
