@@ -1,55 +1,70 @@
 use std::{
-    env::args,
     mem,
-    path::PathBuf,
     process::{Command, Stdio},
     time::Duration,
 };
 
+use clap::Parser;
 use image::{GrayImage, Luma};
 use ndarray::Array2;
-use rand::Rng;
+use rand::prelude::*;
+use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use tokio::time::sleep;
 
-const MAX_ITER: usize = 35;
-const PROB: f64 = 0.15;
-const DELAY: u64 = 1000;
-const SIZE: usize = 10;
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct Args {
+    /// Path of the image that will be generated
+    #[arg(short, long, default_value_t = String::from("output.png"))]
+    output: String,
+    /// Width of the game of life matrix
+    #[arg(short, long)]
+    width: usize,
+    /// Height of the game of life matrix
+    #[arg(short, long)]
+    height: usize,
+    /// Cell size in pixels
+    #[arg(short, long, value_parser=clap::value_parser!(u32).range(1..), default_value_t = 10)]
+    size: u32,
+    /// Command which will be executed after generating each image
+    #[arg(short, long)]
+    command: Option<String>,
+    /// Number of generations before resetting the grid to a random state
+    #[arg(short, long, default_value_t = 35)]
+    max_iter: usize,
+    /// Probability of a cell being alive when randomly filling the grid
+    #[arg(short, long, default_value_t = 0.15)]
+    fill: f64,
+    /// Delay in ms between each image generation
+    #[arg(short, long, value_parser=clap::value_parser!(u64).range(1..), default_value_t = 1000)]
+    delay: u64,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let mut args = args();
-    if args.len() < 4 {
-        return Err(anyhow::anyhow!(
-            "Usage: {} <path> <width> <height> [command]",
-            args.next().unwrap()
-        ));
-    }
-    let mut args = args.skip(1);
-    let path: PathBuf = args.next().unwrap().into();
-    let width: usize = args.next().unwrap().parse()?;
-    let height: usize = args.next().unwrap().parse()?;
-    let command = args.next();
-    let mut cur: &mut Array2<bool> = &mut Array2::from_elem((width, height), false);
-    let mut next: &mut Array2<bool> = &mut Array2::from_elem((width, height), false);
-    let mut iter = MAX_ITER;
+    let args = Args::parse();
+    let mut cur: &mut Array2<bool> = &mut Array2::from_elem((args.width, args.height), false);
+    let mut next: &mut Array2<bool> = &mut Array2::from_elem((args.width, args.height), false);
+    let mut iter = args.max_iter;
     loop {
-        if iter == MAX_ITER {
-            cur.iter_mut().par_bridge().for_each(|val| {
-                let mut rng = rand::thread_rng();
-                *val = rng.gen_bool(PROB);
-            });
+        if iter == args.max_iter {
+            cur.iter_mut().par_bridge().for_each_init(
+                || Xoshiro256PlusPlus::from_entropy(),
+                |rng, val| {
+                    *val = rng.gen_bool(args.fill);
+                },
+            );
             iter = 0;
         }
-        array2_to_image(&cur).save(&path)?;
-        if let Some(ref command) = command {
+        array2_to_image(&cur, args.size).save(&args.output)?;
+        if let Some(ref command) = args.command {
             Command::new(&command).stdout(Stdio::null()).spawn()?;
         }
         next_generation(cur, next);
         mem::swap(&mut cur, &mut next);
         iter += 1;
-        sleep(Duration::from_millis(DELAY)).await;
+        sleep(Duration::from_millis(args.delay)).await;
     }
 }
 
@@ -81,17 +96,17 @@ fn next_generation(cur: &Array2<bool>, next: &mut Array2<bool>) {
         });
 }
 
-fn array2_to_image(grid: &Array2<bool>) -> GrayImage {
-    let height = grid.ncols() * SIZE;
-    let width = grid.nrows() * SIZE;
+fn array2_to_image(grid: &Array2<bool>, size: u32) -> GrayImage {
+    let height: u32 = grid.ncols() as u32 * size;
+    let width: u32 = grid.nrows() as u32 * size;
 
-    let mut img = GrayImage::new(width as u32, height as u32);
+    let mut img = GrayImage::new(width, height);
 
     for ((x, y), &value) in grid.indexed_iter() {
         let pixel_value = Luma([if value { 64 } else { 0 }]);
-        for i in 0..SIZE {
-            for j in 0..SIZE {
-                img.put_pixel((x * SIZE + j) as u32, (y * SIZE + i) as u32, pixel_value);
+        for i in 0..size {
+            for j in 0..size {
+                img.put_pixel(x as u32 * size + j, y as u32 * size + i, pixel_value);
             }
         }
     }
