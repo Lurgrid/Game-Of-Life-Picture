@@ -59,7 +59,10 @@ async fn main() -> anyhow::Result<()> {
         }
         array2_to_image(&cur, args.size).save(&args.output)?;
         if let Some(ref command) = args.command {
-            Command::new(&command).stdout(Stdio::null()).spawn()?;
+            Command::new(&command)
+                .stdout(Stdio::null())
+                .spawn()?
+                .wait()?;
         }
         next_generation(cur, next);
         mem::swap(&mut cur, &mut next);
